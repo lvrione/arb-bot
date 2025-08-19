@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tennis Betting Service (Demo)</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 0 20px;
+      line-height: 1.6;
+    }
+    h1 {
+      text-align: center;
+    }
+    label {
+      display: block;
+      margin-top: 1em;
+    }
+    input[type="text"], select {
+      width: 100%;
+      padding: 8px;
+      box-sizing: border-box;
+      margin-top: 0.3em;
+    }
+    button {
+      display: block;
+      margin-top: 1.5em;
+      padding: 10px 16px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    .results {
+      margin-top: 2em;
+    }
+    .event {
+      border: 1px solid #ccc;
+      padding: 10px;
+      margin-bottom: 1em;
+    }
+    .event h2 {
+      margin: 0 0 0.5em 0;
+    }
+    .arb {
+      background-color: #fdf5e6;
+      padding: 10px;
+      margin-top: 0.5em;
+    }
+  </style>
+</head>
+<body>
+  <h1>Tennis Betting Service (Demo)</h1>
+  <p>
+    Этот инструмент предназначен только для информационных целей. Он
+    подгружает текущие коэффициенты на теннисные матчи с The Odds API и
+    вычисляет потенциальные «вилки» (арбитражные ситуации). Введите свой
+    API‑ключ и выберите турнир, чтобы начать.
+  </p>
+  <label for="apiKey">The Odds API Key:</label>
+  <input type="text" id="apiKey" placeholder="Введите ваш API‑ключ" />
+
+  <label for="sportKey">Турнир:</label>
+  <select id="sportKey">
+    <!-- You can add more tournaments here -->
+    <option value="tennis_atp_us_open">ATP US Open</option>
+    <option value="tennis_wta_us_open">WTA US Open</option>
+    <option value="tennis_atp_paris_masters">ATP Paris Masters</option>
+    <option value="tennis_wta_wuhan_open">WTA Wuhan Open</option>
+    <option value="tennis_atp_australian_open">ATP Australian Open</option>
+    <option value="tennis_wta_australian_open">WTA Australian Open</option>
+  </select>
+
+  <button id="fetchBtn">Получить данные</button>
+
+  <div class="results" id="results"></div>
+
+  <script>
+    async function fetchOdds() {
+      const apiKey = document.getElementById('apiKey').value.trim();
+      const sportKey = document.getElementById('sportKey').value;
+      const resultsDiv = document.getElementById('results');
+      resultsDiv.innerHTML = '';
+      if (!apiKey) {
+        resultsDiv.textContent = 'Пожалуйста, введите API‑ключ.';
+        return;
+      }
+      const url = `https://api.the-odds-api.com/v4/sports/${sportKey}/odds?apiKey=${encodeURIComponent(apiKey)}&regions=uk&markets=h2h&oddsFormat=decimal`;
+      try {
+        const resp = await fetch(url);
+        if (!resp.ok) {
+          resultsDiv.textContent = 'Ошибка при запросе API: ' + resp.status;
+          return;
+        }
+        const data = await resp.json();
+        if (!Array.isArray(data) || data.length === 0) {
+          resultsDiv.textContent = 'Нет данных для выбранного турнира.';
+          return;
+        }
+        data.forEach((event) => {
+          const eventDiv = document.createElement('div');
+          eventDiv.className = 'event';
+          const home = event.home_team;
+          const away = event.away_team;
+          const start = new Date(event.commence_time);
+          const header = document.createElement('h2');
+          header.textContent = `${home} vs ${away}`;
+          eventDiv.appendChild(header);
+          const timeP = document.createElement('p');
+          timeP.textContent = 'Начало: ' + start.toUTCString();
+          eventDiv.appendChild(timeP);
+          // Find best odds for each outcome
+          const bestPrices = {};
+          event.bookmakers.forEach((bk) => {
+            bk.markets.forEach((market) => {
+              if (market.key === 'h2h') {
+                market.outcomes.forEach((out) => {
+                  if (!bestPrices[out.name] || out.price < bestPrices[out.name]) {
+                    bestPrices[out.name] = out.price;
+                  }
+                });
+              }
+            });
+          });
+          const oddsList = document.createElement('ul');
+          Object.keys(bestPrices).forEach((name) => {
+            const li = document.createElement('li');
+            li.textContent = `${name}: ${bestPrices[name]}`;
+            oddsList.appendChild(li);
+          });
+          eventDiv.appendChild(oddsList);
+          // Arbitrage detection
+          const prices = Object.values(bestPrices);
+          if (prices.length === 2) {
+            const invSum = prices.reduce((sum, p) => sum + 1 / p, 0);
+            if (invSum < 1) {
+              const arbDiv = document.createElement('div');
+              arbDiv.className = 'arb';
+              const stake1 = (1 / prices[0]) / invSum;
+              const stake2 = (1 / prices[1]) / invSum;
+              const margin = (1 / invSum) - 1;
+              arbDiv.innerHTML =
+                '<strong>Вилка найдена!</strong><br>' +
+                `Рекомендуемые доли ставки: ${stake1
+                  .toFixed(2)} и ${stake2.toFixed(2)}<br>` +
+                `Ожидаемая прибыль: ${(margin * 100).toFixed(2)}%`;
+              eventDiv.appendChild(arbDiv);
+            }
+          }
+          resultsDiv.appendChild(eventDiv);
+        });
+      } catch (err) {
+        resultsDiv.textContent = 'Ошибка: ' + err.message;
+      }
+    }
+    document.getElementById('fetchBtn').addEventListener('click', fetchOdds);
+  </script>
+</body>
+</html>
